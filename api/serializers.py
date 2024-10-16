@@ -1,3 +1,6 @@
+import secrets
+import string
+
 from rest_framework import serializers
 from .models import *
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -68,6 +71,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         # Include additional user info in the response
+        data.update({'id': self.user.id})
         data.update({'role': self.user.role})
         data.update({'username': self.user.username})
         data.update({'email': self.user.email})
@@ -94,8 +98,47 @@ class UserSerializer(serializers.ModelSerializer):
             'bio',
             'social_links',
             'preferences',
+            'role'
         )
         read_only_fields = ('id',)
+
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = (
+            'id',
+            'username',
+            'email',
+            'role',
+            'phone_number',
+            'date_of_birth',
+            'gender',
+            'profile_picture',
+        )
+        extra_kwargs = {
+            'username': {'required': True},
+        }
+
+    def create(self, validated_data):
+        alphabet = string.ascii_letters + string.digits + string.punctuation
+        password = ''.join(secrets.choice(alphabet) for i in range(12))  # 12-character password
+
+        user = User(
+            username=validated_data['username'],
+            email=validated_data.get('email', ''),
+            role=validated_data.get('role', 'BUYER'),
+            phone_number=validated_data.get('phone_number', ''),
+            date_of_birth=validated_data.get('date_of_birth', None),
+            gender=validated_data.get('gender', None),
+            profile_picture=validated_data.get('profile_picture', None),
+        )
+        user.set_password(password)
+        user.save()
+
+        self.generated_password = password
+
+        return user
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -116,7 +159,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    seller = serializers.StringRelatedField(read_only=True)
+    user = serializers.StringRelatedField(read_only=True)
     category = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(), required=False, allow_null=True
     )
@@ -127,18 +170,23 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            'id', 'seller', 'name', 'sku', 'barcode', 'brand', 'description', 'material',
+            'id', 'user', 'name', 'sku', 'barcode', 'brand', 'description', 'material',
             'care_instructions', 'category', 'tags', 'price', 'sale_price', 'start_sale_date',
             'end_sale_date', 'stock', 'weight', 'dimensions', 'sizes', 'colors', 'status',
             'is_featured', 'is_new_arrival', 'is_on_sale', 'main_image', 'video_url',
             'meta_title', 'meta_description', 'slug'
         ]
-        read_only_fields = ('seller', 'slug')
+        read_only_fields = ('user', 'slug')
 
     def create(self, validated_data):
-        seller = validated_data.pop('seller', self.context['request'].user)
+        user = self.context['request'].user
         tags = validated_data.pop('tags', [])
-        product = Product.objects.create(seller=seller, **validated_data)
+        product = Product.objects.create(user=user, **validated_data)
         product.tags.set(tags)
         return product
 
+
+class PermissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Permission
+        fields = '__all__'
